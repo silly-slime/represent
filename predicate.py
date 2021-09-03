@@ -1,10 +1,10 @@
 import inspect
 
-from stuffs import ComposeFabricsBuilder
+from stuffs import ComposeFabricBuilder
 
-_PredicateBuilder = ComposeFabricsBuilder.with_attributes(
+_PredicateBuilder = ComposeFabricBuilder.with_attributes(
     *{"__cmp__", "__eq__", "__ne__", "__lt__", "__gt__", "__le__", "__ge__", },
-    **{attr_name : ComposeFabricsBuilder.prune_attr_name(handler)
+    **{attr_name : ComposeFabricBuilder.prune_attr_name(handler)
        for attr_name, handler in {
             "__and__": lambda a, b: a and b,
             "__rand__": lambda a, b: b and a,
