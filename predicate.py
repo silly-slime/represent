@@ -1,51 +1,52 @@
-from stuffs import ComposeFunctorBuilder, _AbstractComposeFunctor
+import inspect
 
+from stuffs import ComposeFabricsBuilder
 
-class _PredicateBuilder(ComposeFunctorBuilder):
-    @staticmethod
-    def build_functor_method(functor_class, attr_name, handler):
-        def functor_method(self, other):
-            def functor_caller(*args, **kwargs):
-                return handler(
-                    attr_name,
-                    self(*args, **kwargs),
-                    other if not isinstance(other, _AbstractPredicate) else other(*args, **kwargs))
-            return functor_class(functor_caller)
-        return functor_method
-
-    @classmethod
-    def default(cls):
-        predicate_defaults = {"__cmp__", "__eq__", "__ne__", "__lt__", "__gt__", "__le__", "__ge__", }
-        predicate_handlers = {
+_PredicateBuilder = ComposeFabricsBuilder.with_attributes(
+    *{"__cmp__", "__eq__", "__ne__", "__lt__", "__gt__", "__le__", "__ge__", },
+    **{attr_name : ComposeFabricsBuilder.prune_attr_name(handler)
+       for attr_name, handler in {
             "__and__": lambda a, b: a and b,
             "__rand__": lambda a, b: b and a,
             "__or__": lambda a, b: a or b,
             "__ror__": lambda a, b: b or a,
-        }
-        return cls.with_attributes(*predicate_defaults, **predicate_handlers)
+        }.items()
+    },
+)
 
 
-class _AbstractPredicate(_AbstractComposeFunctor, _PredicateBuilder.default()):
-    pass
+class _AbstractPredicate:
+    _func = None
+
+    def __init__(self, func):
+        self._func = func
+
+    def __call__(self, *args, **kwargs):
+        a = self._func(*args, **kwargs)
+        return a
 
 
+@_PredicateBuilder.decorate_fabric
 class Predicate(_AbstractPredicate):
     def __call__(self, it, parent):
-        return self._func(it, parent)
+        return super().__call__(it, parent)
 
 
+@_PredicateBuilder.decorate_fabric
 class PredicateN(_AbstractPredicate):
     def __call__(self, *args):
-        return self._func(*args)
+        return super().__call__(*args)
 
 
+@_PredicateBuilder.decorate_fabric
 class PredicateI(_AbstractPredicate):
     def __call__(self, it):
-        return self._func(it)
+        return super().__call__(it)
 
 
+@_PredicateBuilder.decorate_fabric
 class PredicateP(_AbstractPredicate):
     def __call__(self, _, parent):
-        return self._func(parent)
+        return super().__call__(parent)
 
 
