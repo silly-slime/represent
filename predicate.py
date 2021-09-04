@@ -1,3 +1,4 @@
+import functools
 import inspect
 
 from stuffs import ComposeFabricBuilder
@@ -10,43 +11,26 @@ _PredicateBuilder = ComposeFabricBuilder.with_attributes(
             "__rand__": lambda a, b: b and a,
             "__or__": lambda a, b: a or b,
             "__ror__": lambda a, b: b or a,
+
+            "__iand__": lambda a, b: a and b,
+            "__ior__": lambda a, b: a or b,
         }.items()
     },
 )
 
-
-class _AbstractPredicate:
+@_PredicateBuilder.decorate_fabric
+class Predicate:
     _func = None
+    _args_count = 0
+    _args_exist = False
 
     def __init__(self, func):
+        p = inspect.signature(func).parameters
         self._func = func
+        self._args_count = len(p)
+        self._args_exist = functools.reduce(lambda a, b: a or b, (a.kind == a.VAR_POSITIONAL for a in p.values()), False)
 
-    def __call__(self, *args, **kwargs):
-        a = self._func(*args, **kwargs)
-        return a
-
-
-@_PredicateBuilder.decorate_fabric
-class Predicate(_AbstractPredicate):
-    def __call__(self, it, parent):
-        return super().__call__(it, parent)
-
-
-@_PredicateBuilder.decorate_fabric
-class PredicateN(_AbstractPredicate):
     def __call__(self, *args):
-        return super().__call__(*args)
-
-
-@_PredicateBuilder.decorate_fabric
-class PredicateI(_AbstractPredicate):
-    def __call__(self, it):
-        return super().__call__(it)
-
-
-@_PredicateBuilder.decorate_fabric
-class PredicateP(_AbstractPredicate):
-    def __call__(self, _, parent):
-        return super().__call__(parent)
-
-
+        if not self._args_exist:
+            args = args[:self._args_count]
+        return self._func(*args)
