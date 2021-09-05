@@ -1,11 +1,11 @@
 import functools
 import inspect
 
-from stuffs import ComposeFabricBuilder
+from stuffs import FabricComposer
 
-_PredicateBuilder = ComposeFabricBuilder.with_attributes(
+PredicateComposer = FabricComposer(
     *{"__cmp__", "__eq__", "__ne__", "__lt__", "__gt__", "__le__", "__ge__", },
-    **{attr_name : ComposeFabricBuilder.prune_attr_name(handler)
+    **{attr_name : FabricComposer.prune_attr_name(handler)
        for attr_name, handler in {
             "__and__": lambda a, b: a and b,
             "__rand__": lambda a, b: b and a,
@@ -18,7 +18,8 @@ _PredicateBuilder = ComposeFabricBuilder.with_attributes(
     },
 )
 
-@_PredicateBuilder.decorate_fabric
+
+@PredicateComposer
 class Predicate:
     _func = None
     _args_count = 0
