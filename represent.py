@@ -21,8 +21,6 @@ class Represent:
     @classmethod
     def is_correct(cls, rep, block_exception=True):
         try:
-            if not hasattr(rep, "it"):
-                print("yes")
             return cls._predicate(rep)
         except Exception:
             if not block_exception or isinstance(rep, cls):
@@ -37,12 +35,12 @@ class Represent:
             __owner_represent__ = getattr(cls, "__owner_represent__", None) or cls
 
         _rep_.__name__ = name or f"{_rep_.__owner_represent__.__name__}?"
-        _rep_.__qualname__ = f"{_rep_.__owner_represent__.__qualname__}" + (f":{name}" if name else "?")
+        _rep_.__qualname__ = f"{_rep_.__owner_represent__.__qualname__}" + (f":{name}" if name else "?") # ??? view
         return _rep_
 
     @classmethod
     def find(cls, space, used=set(), scheme=dict()):
-        def tr(a):
+        def tr(a): # silly name
             try:
                 return cls(a)
             except IncorrectScheme:
@@ -81,7 +79,7 @@ class Represent:
 
         for k, v in _scheme.items():
             getattr(self.__class__, k).set(self, v)
-        if not self.__class__.is_correct(self):
+        if not self.__class__.is_correct(self): # .class??
             raise IncorrectScheme
 
     def __hash__(self):
@@ -121,7 +119,7 @@ class SheetRepresent(Represent):
 class SubRepresent:
     name = None
     represent_class = None
-    owner = None
+    owner = None # need? # no...
 
     def __init__(self, represent_class, cls_predicate=None, own_predicate=None):
         if cls_predicate is not None and not isinstance(cls_predicate, Predicate):
@@ -162,7 +160,7 @@ class SubRepresent:
             self.set(instance, oldvalue)
             raise IncorrectScheme()
 
-
+# strange
 def _safe_repr(obj):
     try:
         return repr(obj)
@@ -178,6 +176,7 @@ def _safe_repr(obj):
 class IncorrectScheme(ValueError):
     pass
 
+# this is not how exceptions are called
 
 class IncompleteScheme(ValueError):
     def __init__(self, scheme, nofields, rep=None, related_data=None, message=""):
