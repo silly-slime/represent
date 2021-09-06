@@ -78,3 +78,7 @@ class FabricComposer:
             setattr(_wrap_, attr_name, method)
         return _wrap_
 
+
+class colddict(dict):
+    def __hash__(self):
+        return hash(frozenset((k,v) for k,v in self.items()))

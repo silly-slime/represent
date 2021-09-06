@@ -33,3 +33,6 @@ class Predicate:
         if not self._args_exist:
             args = args[:self._args_count]
         return self._func(*args)
+
+
+PTrue = Predicate(lambda: True)
