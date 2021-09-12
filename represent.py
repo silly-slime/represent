@@ -1,6 +1,6 @@
 import functools
 
-from stuffs import colddict
+from stuffs import colddict, scheme_search
 from predicate import Predicate
 
 
@@ -23,8 +23,16 @@ class Represent:
         try:
             return cls._predicate(rep)
         except Exception:
-            if not block_exception or isinstance(rep, cls):
-                raise
+            if block_exception and not getattr(cls, "_debug_", False):
+                return False
+            raise
+
+    @classmethod
+    def is_correct_scheme(cls, scheme):
+        try:
+            cls(scheme)
+            return True
+        except IncorrectScheme:
             return False
 
     @classmethod
@@ -39,37 +47,12 @@ class Represent:
         return _rep_
 
     @classmethod
-    def find(cls, space, used=set(), scheme=dict()):
-        def tr(a): # silly name
-            try:
-                return cls(a)
-            except IncorrectScheme:
-                return None
+    def find(cls, space, used=set()):
+        return {a['self'] for a in scheme_search(pattern={"self": cls}, space=space, used=used)}
 
-        return {tr(a) for a in cls._find(space=space, used=used, scheme=scheme)}.difference([None])
-
-    @classmethod
-    def _find(cls, space, used=set(), scheme=dict()):
-        pattern = cls._pattern()
-        if not pattern: return frozenset()
-
-        needs = {k for k in pattern if scheme.get(k, None) is None}
-        frees = {a for a in space if a not in used}
-
-        if not needs: return frozenset([colddict(scheme)])
-        if not frees: return frozenset()
-
-        finds = {(k, a) for k in needs for a in frees
-                 if pattern.get(k).is_correct(a)
-                 if not used.intersection(a._inners())} \
-            .union({(k, r) for k in needs for a in frees
-                    for r in pattern.get(k).find(space={a}, used=used)})
-
-        return frozenset(colddict(a) for k, v in finds for a in cls._find(
-            space={*space, *v._outers()},
-            used={*used, *v._inners()},
-            scheme={**scheme, k: v}
-        ))
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls._predicate = Predicate(cls._predicate)
 
     def __init__(self, scheme=dict(), **kwscheme):
         _scheme = {k: v for k, v in {**scheme, **kwscheme}.items() if k in self._pattern()}
@@ -95,15 +78,18 @@ class Represent:
     def _inners(self):
         if not self._scheme():
             raise NotImplementedError
-        return {a._inners() for a in self._scheme().items()}
+        return {b for a in self._scheme().values() for b in a._inners()}
 
     def _outers(self):
         return functools.reduce(lambda a, b: a.union(b._outers()), self._inners(), set()).difference(self._inners())
 
 
 class SheetRepresent(Represent):
-    def __init__(self):
-        pass
+    G = None
+
+    def __init__(self, G=None):
+        if G is not None:
+            self.G = G
 
     def _inners(self):
         return {self}
@@ -111,30 +97,34 @@ class SheetRepresent(Represent):
     def _outers(self):
         raise NotImplementedError
 
+    def _graph_value(self):
+        raise NotImplementedError
+
+    def __hash__(self):
+        return hash(self._graph_value())
+
+    def __eq__(self, other):
+        return hasattr(other, "_graph_value") and self._graph_value() == other._graph_value()
+
     @classmethod
     def find(cls, space, used=set(), scheme=dict()):
         return {a for a in space if cls.is_correct(a) if a not in used}
+
+    @classmethod
+    def is_correct_scheme(cls):
+        return False
 
 
 class SubRepresent:
     name = None
     represent_class = None
-    owner = None # need? # no...
 
-    def __init__(self, represent_class, cls_predicate=None, own_predicate=None):
-        if cls_predicate is not None and not isinstance(cls_predicate, Predicate):
-            cls_predicate = Predicate(cls_predicate)
-        if own_predicate is not None and not isinstance(own_predicate, Predicate):
-            own_predicate = Predicate(own_predicate)
-
+    def __init__(self, represent_class, cls_predicate=None):
         if cls_predicate is not None:
             represent_class = represent_class.with_predicate(cls_predicate)
         self.represent_class = represent_class
-        self._own_predicate = own_predicate  # ?
 
     def __set_name__(self, owner, name):
-        if self._own_predicate is not None:
-            owner._predicate = owner._predicate & self._own_predicate
         self.name = name
         self.owner = owner
 

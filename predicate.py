@@ -23,7 +23,19 @@ class Predicate:
     _args_count = 0
     _args_exist = False
 
+    def wrapped_func(self):
+        f = self._func
+        while isinstance(f, Predicate):
+            print(f)
+            f = f._func
+        return f
+
+    def __new__(cls, func):
+        return func if isinstance(func, Predicate) else super().__new__(cls)
+
     def __init__(self, func):
+        if isinstance(func, Predicate):
+            return
         p = inspect.signature(func).parameters
         self._func = func
         self._args_count = len(p)

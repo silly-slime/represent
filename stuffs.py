@@ -82,3 +82,48 @@ class FabricComposer:
 class colddict(dict):
     def __hash__(self):
         return hash(frozenset((k,v) for k,v in self.items()))
+
+def scheme_search(pattern, space, used=set(), scheme=dict()):
+    if not pattern: return frozenset()
+
+    needs = {k for k in pattern if scheme.get(k, None) is None}
+    frees = {a for a in space if a not in used}
+
+    if not needs: return frozenset([colddict(scheme)])
+    if not frees: return frozenset()
+
+    finds = {(k, a) for k in needs for a in frees
+             if pattern.get(k).is_correct(a)
+             if not used.intersection(a._inners())} \
+        .union({(k, pattern.get(k)(s)) for k in needs for a in frees
+                for s in scheme_search(pattern=pattern.get(k)._pattern(), space={a}, used=used)
+                if pattern.get(k).is_correct_scheme(s)})
+
+    return frozenset(colddict(a) for k, v in finds for a in scheme_search(
+        pattern=pattern,
+        space={*space, *v._outers()}, # space?
+        used={*used, *v._inners()},
+        scheme={**scheme, k: v}
+    ))
+
+"""def scheme_search(pattern, space, used=set(), scheme=dict()):
+    if not pattern: return frozenset()
+
+    needs = {k for k in pattern if scheme.get(k, None) is None}
+    frees = {a for a in space if a not in used}
+
+    if not needs: return frozenset([colddict(scheme)])
+    if not frees: return frozenset()
+
+    finds = {(k, a) for k in needs for a in frees
+             if pattern.get(k).is_correct(a)
+             if not used.intersection(a._inners())} \
+        .union({(k, r) for k in needs for a in frees
+                for r in pattern.get(k).find(space={a}, used=used)})
+
+    return frozenset(colddict(a) for k, v in finds for a in scheme_search(
+        pattern=pattern,
+        space={*space, *v._outers()}, # space?
+        used={*used, *v._inners()},
+        scheme={**scheme, k: v}
+    ))"""
