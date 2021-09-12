@@ -1,11 +1,13 @@
 import functools
 
-from stuffs import colddict
+from stuffs import colddict, scheme_search
 from predicate import Predicate
 
 
 class Represent:
-    _predicate = Predicate(lambda: True)
+    predicate = Predicate(lambda: True)
+
+    __owner_with_predicate__ = None
 
     @classmethod
     def _subreps(cls):
@@ -21,55 +23,38 @@ class Represent:
     @classmethod
     def is_correct(cls, rep, block_exception=True):
         try:
-            return cls._predicate(rep)
+            return cls.predicate(rep)
         except Exception:
-            if not block_exception or isinstance(rep, cls):
-                raise
+            if block_exception and not getattr(cls, "_debug_", False):
+                return False
+            raise
+
+    @classmethod
+    def is_correct_scheme(cls, scheme):
+        try:
+            cls(scheme)
+            return True
+        except IncorrectScheme:
             return False
 
     @classmethod
-    def with_predicate(cls, predicate, name=""):
+    def with_predicate(cls, _predicate, name=""):
         @functools.wraps(cls, updated=())
-        class _rep_(cls):
-            _predicate = predicate
-            __owner_represent__ = getattr(cls, "__owner_represent__", None) or cls
+        class _with_(cls):
+            predicate = Predicate(_predicate)
+            __owner_with_predicate__ = getattr(cls, "__owner_with_predicate__", None) or cls
 
-        _rep_.__name__ = name or f"{_rep_.__owner_represent__.__name__}?"
-        _rep_.__qualname__ = f"{_rep_.__owner_represent__.__qualname__}" + (f":{name}" if name else "?") # ??? view
-        return _rep_
-
-    @classmethod
-    def find(cls, space, used=set(), scheme=dict()):
-        def tr(a): # silly name
-            try:
-                return cls(a)
-            except IncorrectScheme:
-                return None
-
-        return {tr(a) for a in cls._find(space=space, used=used, scheme=scheme)}.difference([None])
+        _with_.__name__ = name or f"{_with_.__owner_with_predicate__.__name__}?"
+        _with_.__qualname__ = f"{_with_.__owner_with_predicate__.__qualname__}" + (f":{name}" if name else "?")
+        return _with_
 
     @classmethod
-    def _find(cls, space, used=set(), scheme=dict()):
-        pattern = cls._pattern()
-        if not pattern: return frozenset()
+    def find(cls, space, used=set()):
+        return {a['self'] for a in scheme_search(pattern={"self": cls}, space=space, used=used)}
 
-        needs = {k for k in pattern if scheme.get(k, None) is None}
-        frees = {a for a in space if a not in used}
-
-        if not needs: return frozenset([colddict(scheme)])
-        if not frees: return frozenset()
-
-        finds = {(k, a) for k in needs for a in frees
-                 if pattern.get(k).is_correct(a)
-                 if not used.intersection(a._inners())} \
-            .union({(k, r) for k in needs for a in frees
-                    for r in pattern.get(k).find(space={a}, used=used)})
-
-        return frozenset(colddict(a) for k, v in finds for a in cls._find(
-            space={*space, *v._outers()},
-            used={*used, *v._inners()},
-            scheme={**scheme, k: v}
-        ))
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.predicate = Predicate(cls.predicate)
 
     def __init__(self, scheme=dict(), **kwscheme):
         _scheme = {k: v for k, v in {**scheme, **kwscheme}.items() if k in self._pattern()}
@@ -84,57 +69,32 @@ class Represent:
 
     def __hash__(self):
         if not self._scheme():
-            return super.__hash__(self)
+            return super().__hash__(self)
         return hash(colddict(self._scheme()))
 
     def __eq__(self, other):
-        if not self._scheme():
-            return super.__eq__(self)
+        if not self._scheme() or not hasattr(other, "_scheme"):
+            return super().__eq__(self, other)
         return self._scheme() == other._scheme()
 
-    def _inners(self):
-        if not self._scheme():
-            raise NotImplementedError
-        return {a._inners() for a in self._scheme().items()}
+    def _inners(self):  # empty scheme => ?
+        return {b for a in self._scheme().values() for b in a._inners()}
 
     def _outers(self):
-        return functools.reduce(lambda a, b: a.union(b._outers()), self._inners(), set()).difference(self._inners())
-
-
-class SheetRepresent(Represent):
-    def __init__(self):
-        pass
-
-    def _inners(self):
-        return {self}
-
-    def _outers(self):
-        raise NotImplementedError
-
-    @classmethod
-    def find(cls, space, used=set(), scheme=dict()):
-        return {a for a in space if cls.is_correct(a) if a not in used}
+        return functools.reduce(set.union, (a._outers() for a in self._inners()), set()).difference(self._inners())
 
 
 class SubRepresent:
     name = None
+    owner = None
     represent_class = None
-    owner = None # need? # no...
 
-    def __init__(self, represent_class, cls_predicate=None, own_predicate=None):
-        if cls_predicate is not None and not isinstance(cls_predicate, Predicate):
-            cls_predicate = Predicate(cls_predicate)
-        if own_predicate is not None and not isinstance(own_predicate, Predicate):
-            own_predicate = Predicate(own_predicate)
-
-        if cls_predicate is not None:
-            represent_class = represent_class.with_predicate(cls_predicate)
+    def __init__(self, represent_class, add_predicate=None):
+        if add_predicate is not None:
+            represent_class = represent_class.with_predicate(add_predicate)
         self.represent_class = represent_class
-        self._own_predicate = own_predicate  # ?
 
     def __set_name__(self, owner, name):
-        if self._own_predicate is not None:
-            owner._predicate = owner._predicate & self._own_predicate
         self.name = name
         self.owner = owner
 
@@ -144,8 +104,6 @@ class SubRepresent:
     def __get__(self, instance, owner):
         if instance is None:
             return self
-        if self.get(instance) is None:
-            raise NoneSubRepresent(self.name, instance)
         return self.get(instance)
 
     def set(self, instance, value):
@@ -159,6 +117,78 @@ class SubRepresent:
         if not self.owner.is_correct(instance):
             self.set(instance, oldvalue)
             raise IncorrectScheme()
+
+class RepresentGraph:
+
+    @classmethod
+    def unwrap_represent_args(cls, func):
+        def unwrap(arg: SheetRepresent):
+            return arg._graph_value() if isinstance(arg, SheetRepresent) else arg
+
+        @functools.wraps(func)
+        def wrap(*args, **kwargs):
+            return func(
+                *(unwrap(a) for a in args),
+                **{k: unwrap(v) for k, v in kwargs.items()}
+            )
+
+        return wrap
+
+    def __init__(self):
+        super().__init__()
+        for name, sheet in ((k, getattr(self,k)) for k in dir(self) if hasattr(self, k)):
+            if isinstance(sheet, type) and issubclass(sheet, SheetRepresent):
+                setattr(self, name, sheet.with_graph(self))
+
+    def __getattribute__(self, item):
+        a = super().__getattribute__(item)
+        if callable(a) and not isinstance(a, type) and item != "unwrap_represent_args":
+            a = self.unwrap_represent_args(a)
+        return a
+
+
+class SheetRepresent(Represent):
+    G = None
+
+    __owner_with_graph__ = None
+
+    def __init__(self, G=None):
+        if G is not None:
+            self.G = G
+
+    @classmethod
+    def with_graph(cls, _G):
+        @functools.wraps(cls, updated=())
+        class _with_(cls):
+            G = _G
+            __owner_with_graph__ = getattr(cls, "__owner_with_predicate__", None) or cls
+        _with_.__name__ = f"{_with_.__owner_with_graph__.__name__} with {_G}"
+        _with_.__qualname__ = f"{_with_.__owner_with_graph__.__qualname__} with {_G}"
+        return _with_
+
+    def _inners(self):
+        return {self}
+
+    def _outers(self):
+        raise NotImplementedError
+
+    def _graph_value(self):  # name # id in graph
+        raise NotImplementedError
+
+    def __hash__(self):
+        return hash(self._graph_value())
+
+    def __eq__(self, other):
+        return hasattr(other, "_graph_value") and self._graph_value() == other._graph_value()
+
+    @classmethod
+    def find(cls, space, used=set(), scheme=dict()):
+        return {a for a in space if cls.is_correct(a) if a not in used}
+
+    @classmethod
+    def is_correct_scheme(cls):
+        return False
+
 
 # strange
 def _safe_repr(obj):
