@@ -41,7 +41,7 @@ class Represent:
     def with_predicate(cls, _predicate, name=""):
         @functools.wraps(cls, updated=())
         class _with_(cls):
-            predicate = _predicate
+            predicate = Predicate(_predicate)
             __owner_with_predicate__ = getattr(cls, "__owner_with_predicate__", None) or cls
 
         _with_.__name__ = name or f"{_with_.__owner_with_predicate__.__name__}?"
