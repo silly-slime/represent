@@ -116,7 +116,6 @@ def random_neighs(i):
 G = NXGraph()
 N = 50
 for i in range(N):
-    n = set()
     G.Node(i, random_neighs(i))
 
 ts = Triangle.find({G.Node(a) for a in G.nodes()})
