@@ -5,7 +5,9 @@ from predicate import Predicate
 
 
 class Represent:
-    _predicate = Predicate(lambda: True)
+    predicate = Predicate(lambda: True)
+
+    __owner_with_predicate__ = None
 
     @classmethod
     def _subreps(cls):
@@ -21,7 +23,7 @@ class Represent:
     @classmethod
     def is_correct(cls, rep, block_exception=True):
         try:
-            return cls._predicate(rep)
+            return cls.predicate(rep)
         except Exception:
             if block_exception and not getattr(cls, "_debug_", False):
                 return False
@@ -36,15 +38,15 @@ class Represent:
             return False
 
     @classmethod
-    def with_predicate(cls, predicate, name=""):
+    def with_predicate(cls, _predicate, name=""):
         @functools.wraps(cls, updated=())
-        class _rep_(cls):
-            _predicate = predicate
-            __owner_represent__ = getattr(cls, "__owner_represent__", None) or cls
+        class _with_(cls):
+            predicate = _predicate
+            __owner_with_predicate__ = getattr(cls, "__owner_with_predicate__", None) or cls
 
-        _rep_.__name__ = name or f"{_rep_.__owner_represent__.__name__}?"
-        _rep_.__qualname__ = f"{_rep_.__owner_represent__.__qualname__}" + (f":{name}" if name else "?") # ??? view
-        return _rep_
+        _with_.__name__ = name or f"{_with_.__owner_with_predicate__.__name__}?"
+        _with_.__qualname__ = f"{_with_.__owner_with_predicate__.__qualname__}" + (f":{name}" if name else "?")
+        return _with_
 
     @classmethod
     def find(cls, space, used=set()):
@@ -52,7 +54,7 @@ class Represent:
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        cls._predicate = Predicate(cls._predicate)
+        cls.predicate = Predicate(cls.predicate)
 
     def __init__(self, scheme=dict(), **kwscheme):
         _scheme = {k: v for k, v in {**scheme, **kwscheme}.items() if k in self._pattern()}
@@ -67,29 +69,102 @@ class Represent:
 
     def __hash__(self):
         if not self._scheme():
-            return super.__hash__(self)
+            return super().__hash__(self)
         return hash(colddict(self._scheme()))
 
     def __eq__(self, other):
-        if not self._scheme():
-            return super.__eq__(self)
+        if not self._scheme() or not hasattr(other, "_scheme"):
+            return super().__eq__(self, other)
         return self._scheme() == other._scheme()
 
-    def _inners(self):
-        if not self._scheme():
-            raise NotImplementedError
+    def _inners(self):  # empty scheme => ?
         return {b for a in self._scheme().values() for b in a._inners()}
 
     def _outers(self):
-        return functools.reduce(lambda a, b: a.union(b._outers()), self._inners(), set()).difference(self._inners())
+        return functools.reduce(set.union, (a._outers() for a in self._inners()), set()).difference(self._inners())
+
+
+class SubRepresent:
+    name = None
+    owner = None
+    represent_class = None
+
+    def __init__(self, represent_class, add_predicate=None):
+        if add_predicate is not None:
+            represent_class = represent_class.with_predicate(add_predicate)
+        self.represent_class = represent_class
+
+    def __set_name__(self, owner, name):
+        self.name = name
+        self.owner = owner
+
+    def get(self, instance):
+        return instance.__dict__.get(self.name)
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        return self.get(instance)
+
+    def set(self, instance, value):
+        if not self.represent_class.is_correct(value):
+            raise WrongSubRepresent(value, self.represent_class, self.name, instance)
+        instance.__dict__[self.name] = value
+
+    def __set__(self, instance, value):
+        oldvalue = self.get(instance)
+        self.set(instance, value)
+        if not self.owner.is_correct(instance):
+            self.set(instance, oldvalue)
+            raise IncorrectScheme()
+
+class RepresentGraph:
+
+    @classmethod
+    def unwrap_represent_args(cls, func):
+        def unwrap(arg: SheetRepresent):
+            return arg._graph_value() if isinstance(arg, SheetRepresent) else arg
+
+        @functools.wraps(func)
+        def wrap(*args, **kwargs):
+            return func(
+                *(unwrap(a) for a in args),
+                **{k: unwrap(v) for k, v in kwargs.items()}
+            )
+
+        return wrap
+
+    def __init__(self):
+        super().__init__()
+        for name, sheet in ((k, getattr(self,k)) for k in dir(self) if hasattr(self, k)):
+            if isinstance(sheet, type) and issubclass(sheet, SheetRepresent):
+                setattr(self, name, sheet.with_graph(self))
+
+    def __getattribute__(self, item):
+        a = super().__getattribute__(item)
+        if callable(a) and not isinstance(a, type) and item != "unwrap_represent_args":
+            a = self.unwrap_represent_args(a)
+        return a
 
 
 class SheetRepresent(Represent):
     G = None
 
+    __owner_with_graph__ = None
+
     def __init__(self, G=None):
         if G is not None:
             self.G = G
+
+    @classmethod
+    def with_graph(cls, _G):
+        @functools.wraps(cls, updated=())
+        class _with_(cls):
+            G = _G
+            __owner_with_graph__ = getattr(cls, "__owner_with_predicate__", None) or cls
+        _with_.__name__ = f"{_with_.__owner_with_graph__.__name__} with {_G}"
+        _with_.__qualname__ = f"{_with_.__owner_with_graph__.__qualname__} with {_G}"
+        return _with_
 
     def _inners(self):
         return {self}
@@ -97,7 +172,7 @@ class SheetRepresent(Represent):
     def _outers(self):
         raise NotImplementedError
 
-    def _graph_value(self):
+    def _graph_value(self):  # name # id in graph
         raise NotImplementedError
 
     def __hash__(self):
@@ -114,41 +189,6 @@ class SheetRepresent(Represent):
     def is_correct_scheme(cls):
         return False
 
-
-class SubRepresent:
-    name = None
-    represent_class = None
-
-    def __init__(self, represent_class, cls_predicate=None):
-        if cls_predicate is not None:
-            represent_class = represent_class.with_predicate(cls_predicate)
-        self.represent_class = represent_class
-
-    def __set_name__(self, owner, name):
-        self.name = name
-        self.owner = owner
-
-    def get(self, instance):
-        return instance.__dict__.get(self.name)
-
-    def __get__(self, instance, owner):
-        if instance is None:
-            return self
-        if self.get(instance) is None:
-            raise NoneSubRepresent(self.name, instance)
-        return self.get(instance)
-
-    def set(self, instance, value):
-        if not self.represent_class.is_correct(value):
-            raise WrongSubRepresent(value, self.represent_class, self.name, instance)
-        instance.__dict__[self.name] = value
-
-    def __set__(self, instance, value):
-        oldvalue = self.get(instance)
-        self.set(instance, value)
-        if not self.owner.is_correct(instance):
-            self.set(instance, oldvalue)
-            raise IncorrectScheme()
 
 # strange
 def _safe_repr(obj):
